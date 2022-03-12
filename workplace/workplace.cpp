@@ -3,6 +3,8 @@
 #include <GLFW/glfw3.h>
 #include<glm/gtc/matrix_transform.hpp>
 #include <glm/mat4x4.hpp>
+#include<chrono>
+#include <cmath>
 
 #pragma comment(lib, "glfw3.lib")
 #pragma comment(lib, "glew32.lib")
@@ -27,6 +29,11 @@ GLfloat colors[258];
 GLfloat dx = 0.2f;
 GLfloat dz = 0.2f;
 GLfloat angle = 0.0f;
+mat4 ModelMatrix = mat4(1.0f);
+
+
+chrono::system_clock::time_point old_time = chrono::system_clock::now();
+chrono::system_clock::time_point cur_time = chrono::system_clock::now();
 
 class Model
 {
@@ -265,7 +272,15 @@ void draw()
 
 
     // Матрица MVP
-    mat4 MVP = Projection * View;
+    cur_time = chrono::system_clock::now();
+    angle = fmod(chrono::duration_cast<chrono::milliseconds>(cur_time - old_time).count(), 1.2);
+    old_time = cur_time;
+
+    ModelMatrix = rotate(ModelMatrix, radians(angle), vec3(0, 1, 0));
+    mat4 MV = View * ModelMatrix;
+
+    // Матрица MVP
+    mat4 MVP = Projection * MV;
 
     /*отправляем её в шейдер*/
     glUniformMatrix4fv(g_uMVP, 1, GL_FALSE, &MVP[0][0]);
