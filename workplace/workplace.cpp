@@ -273,7 +273,7 @@ void draw()
 
     // Матрица MVP
     cur_time = chrono::system_clock::now();
-    angle = fmod(chrono::duration_cast<chrono::milliseconds>(cur_time - old_time).count(), 1.2);
+    angle = fmod(3.14, chrono::duration_cast<chrono::microseconds>(cur_time - old_time).count())/18;
     old_time = cur_time;
 
     ModelMatrix = rotate(ModelMatrix, radians(angle), vec3(0, 1, 0));
