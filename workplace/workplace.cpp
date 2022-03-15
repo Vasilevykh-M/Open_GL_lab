@@ -142,9 +142,77 @@ bool createShaderProgram()
         ""
         "void main()"
         "{"
-        "   o_color = vec4(0.0, 250.0, 0.0, 1.0);"
+        "   o_color = vec4(0, 255, 0, 1.0);"
         "}"
         ;
+
+    /* Шейдер света типо зашит в шейдере цвета*/
+    /* Вектор от точки к источнику света - L, нормаль - N, точка на которую падает свет - P, вектор отраженного света к наблюдателю - E* /
+    /* С = Cd * cos a + Cs * (cos B)^n*/
+    /* P L E N - "дано", но нужно все равно вычислять*/
+    /* В пространсве наблюдателя E = {0,0,0}*/
+
+
+
+
+    /*
+    in vec2 a_pos;
+
+    out vec3 v_pos; точка
+    out vec3 v_normal; вектор нормаль           нужно знать градиент функции y - sin(X)*cos(z) = 0 или любой другой плоскости которую имеем
+
+    uniform mat4 u_mvp; mvp
+    uniform mat4 u_mv; mv
+
+    vec3 grad(vec pos)
+    {
+        return vec3(-cos(pos[0])*cos(pos[1]), 1.0, sin(pos[0]) * sin(pos[1])); 
+    }
+
+    void main()
+    {
+        vec4 pos = vec4(a_pos[0], f(a_pos), a_pos[1], 1);
+        v_pos = u_mv * pos;
+        vec3 n = grad(a_pos);
+        v_normal = transpos(inverse(mat3(u_mv))) * normalaze(n);
+        gl_Position = u_mvp * pos;
+    }
+    */
+    // / \
+    //  |
+    //
+    /*N = ((MV[3*3])^-1)^T*/
+
+    /*L = {5, 5, -2};       в пространстве наблюдателя*/
+
+
+
+    /*фрагментный шейдер*/
+    /*
+    in vec3 v_pos;
+    in vec3 v_normal;
+    
+    void main()
+    {
+        vec3 n = normalize(v_normal);
+
+        vec3 l = normalize(L - v_pos);
+        vec3 e = normalize(-1 * v_pos);
+
+        float d = dot(l, n); // диф освещение
+
+        vec3 h = normalize(l + e);
+        float s = dot(h, n); // блик
+        s = pow(s, 20);
+
+        o_color = vec4(vec3(0,1,0) * d + vec3(s), 1);
+
+
+        o_color = vec4(vec3(1, 0, 0) * d, 1);
+
+        o_color = vec4(abs(n), 1); дебажим нормали 
+    }
+    */
 
     GLuint vertexShader, fragmentShader;
 
@@ -265,7 +333,7 @@ void draw()
     );
 
     mat4 View = lookAt(
-        vec3(20, 20, 20), // Координаты камеры
+        vec3(20, 17, 20), // Координаты камеры
         vec3(0, 0, 0), // Направление камеры в начало координат
         vec3(0, 1, 0)  // Координаты наблюдателя
     );
@@ -273,7 +341,7 @@ void draw()
 
     // Матрица MVP
     cur_time = chrono::system_clock::now();
-    angle = fmod(3.14, chrono::duration_cast<chrono::microseconds>(cur_time - old_time).count())/18;
+    angle = fmod(3.14, pow(1 + chrono::duration_cast<chrono::microseconds>(cur_time - old_time).count(), 3.0))/300;
     old_time = cur_time;
 
     ModelMatrix = rotate(ModelMatrix, radians(angle), vec3(0, 1, 0));
