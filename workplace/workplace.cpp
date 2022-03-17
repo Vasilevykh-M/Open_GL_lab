@@ -18,7 +18,7 @@ GLFWwindow* g_window;
 GLuint g_shaderProgram;
 GLint g_uMVP;
 GLint g_uMV;
-
+GLint g_time;
 float scale_coef = 5.f;
 
 GLfloat x0 = -10.0;
@@ -123,16 +123,17 @@ bool createShaderProgram()
         ""
         "uniform mat4 u_mvp;"
         "uniform mat4 u_mv;"
+        "uniform float g_time;"
         ""
         "vec3 grad(vec2 pos)"
         "{"
-        "   return vec3(cos(pos[0])*cos(pos[1]), 1.0, -1 * sin(pos[0]) * sin(pos[1]));"
+        "   return vec3(3.14/5 * cos(pos[0]*3.14/5)*cos(pos[1]*3.14/5), 1.0, -1 * 3.14/5 * sin(pos[0]*3.14/5) * sin(pos[1]*3.14/5));"
         "}"
 
         ""
         "float f(vec2 a_position)"
         "{"
-        "   return sin(a_position[0]) * cos(a_position[1]);"
+        "   return sin(a_position[0]*3.14/5) * cos(a_position[1]*3.14/5);"
         "}"
         ""
         "void main()"
@@ -150,23 +151,60 @@ bool createShaderProgram()
         ""
         "in vec3 v_pos;"
         "in vec3 v_normal;"
-        ""
+        "uniform float g_time;"//перекачиваю время с основной программы для создания псевдо случайности
+        ""// но по хорошему это работает на случайность кадра а не точки
         "layout(location = 0) out vec4 o_color;"
+        "float rand(vec3 seed)" // функция рандомизации
+        "{"
+        "   return atan(dot(vec2(sin(3.14  *seed[0])*4 + 1, cos(3.14  * seed[0])*4+1), vec2(atan(seed[1]), tan(seed[2])))) * 12;"
+        "}"//на само деле какая то плоха рандомизация, но как тестовая должна вполне себе работать
+        ""
         ""
         "void main()"
         "{"
         "   vec3 n = normalize(v_normal);"
         ""
-        "   vec3 L = vec3(0,15,5);"
-        "   vec3 l = normalize(L - v_pos);"
-        "   vec3 e = normalize(-1 * v_pos);"
+        "   vec3 L = vec3(0,5,0);" // источник света
+        "   vec3 l = normalize(L - v_pos);" // поток света
+        "   vec3 e = normalize(-1 * v_pos);" // вектор в сторону наблюдателя
         ""
-        "   float d = dot(l, n);"
+        "   float d = dot(l, n);" // дифузное освещение(так же можно интерпритировать как sin угла падения к нормали)
         ""
         "   vec3 h = normalize(l + e);"
         "   float s = dot(h, n);"
-        "   s = pow(s, 20);"
-        "   o_color = vec4(vec3(0,1,0) * d + vec3(s), 1);"
+        "   s = pow(s, 20);" // блик
+        "   float lambda = 520.0;" // длинна волны которая прилетела
+        "   float d_film = rand(vec3(g_time, s, d));" // толщина пленки
+        "   float delta = 2 * d_film * sqrt(1.25*1.25- d * d) - (lambda / 2.0);" //разность хода 
+        "   float lambda1 = 2 * lambda * (1.0 + cos(delta));" //закон сохранения энергии 
+
+        ""
+        "   vec3 color = vec3(0, 0, 0);"// базовый цвет
+        ""
+        "   if(lambda1 >= 380 && lambda1 <= 450)" // фиолетовый
+        "       color = vec3((lambda1 - 380) * 0.014, 0, 0.014 * (lambda1 - 380));"//[0, 0, 0] -> [255, 0, 255]
+        ""
+        "   if(lambda1 > 450 && lambda1 <= 500)" // синий
+        "       color = vec3(1.0 - (lambda - 450) * 0.02, 0, 255);" // [255, 0, 255] -> [0, 0, 255]
+        ""
+        "   if(lambda1 > 500 && lambda1 <= 520)" // циановый
+        "       color = vec3(0, (lambda1 - 500) * 0.05, 255);" // [0, 0, 255] -> [0, 255, 255]
+        ""
+        "   if(lambda1 > 520 && lambda1 <= 565)" // зеленый
+        "       color = vec3(0, 255, 1.0 - (lambda1 - 520) * 0.0222);" // [0, 255, 255] -> [0, 255, 0]
+        ""
+        "   if(lambda1 > 565 && lambda1 <= 590)" //желтый
+        "       color = vec3((lambda1 - 565) * 0.04, 255, 0);" //[0, 255, 0] -> [255, 255, 0]
+        ""
+        "   if(lambda1 > 590 && lambda1 <= 635)" //оранжевый
+        "       color = vec3(255, 1.0 - 0.0111 * (lambda1 - 590), 0);" // [255, 255, 0] -> [255, 125, 0]
+        ""
+        "   if(lambda1 > 635 && lambda1 < 770)" // красный
+        "       color = vec3(255, 0.5 - (lambda1 - 635)*0.0037, 0);" // [255, 125, 0] -> [255, 0, 0]
+        ""
+        "   vec4 phonk = vec4(color, 1);"
+        "   o_color = phonk;" //беда с фонгом он сьедает плавный переход и делает его утра грубым
+        "" //хз почему, мб потому что  перекатывает в целое
         ""
         "}"
         ;
@@ -251,6 +289,7 @@ bool createShaderProgram()
     /*запрос матрицы из шейдера*/
     g_uMVP = glGetUniformLocation(g_shaderProgram, "u_mvp");
     g_uMV = glGetUniformLocation(g_shaderProgram, "u_mv");
+    g_time = glGetUniformLocation(g_shaderProgram, "g_time");
 
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
@@ -392,10 +431,12 @@ void draw()
 
     // Матрица MVP
     mat4 MVP = Projection * MV;
+    float time = chrono::duration_cast<chrono::microseconds>(cur_time - old_time).count();
 
     /*отправляем её в шейдер*/
     glUniformMatrix4fv(g_uMV, 1, GL_FALSE, &MV[0][0]);
     glUniformMatrix4fv(g_uMVP, 1, GL_FALSE, &MVP[0][0]);
+    glUniform1f(g_time, time);
 
     /*вызываем перерисовку*/
     glDrawElements(GL_TRIANGLES, g_model.indexCount, GL_UNSIGNED_INT, NULL);
