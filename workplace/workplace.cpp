@@ -17,17 +17,16 @@ GLFWwindow* g_window;
 
 GLuint g_shaderProgram;
 GLint g_uMVP;
+GLint g_uMV;
 
 float scale_coef = 5.f;
 
-GLfloat x0 = -10.0f;
-GLfloat z0 = -10.0f;
-GLint n = 100;
-GLint g_uMV;
+GLfloat x0 = -10.0;
+GLfloat z0 = -10.0;
 GLfloat g_uColors;
 GLfloat colors[258];
-GLfloat dx = 0.2f;
-GLfloat dz = 0.2f;
+GLfloat dx = 0.1;
+GLfloat dz = 0.1;
 GLfloat angle = 0.0f;
 mat4 ModelMatrix = mat4(1.0f);
 
@@ -119,30 +118,56 @@ bool createShaderProgram()
         ""
         "layout(location = 0) in vec2 a_position;"
         ""
+        "out vec3 v_pos;"
+        "out vec3 v_normal;"
         ""
         "uniform mat4 u_mvp;"
+        "uniform mat4 u_mv;"
+        ""
+        "vec3 grad(vec2 pos)"
+        "{"
+        "   return vec3(cos(pos[0])*cos(pos[1]), 1.0, -1 * sin(pos[0]) * sin(pos[1]));"
+        "}"
+
         ""
         "float f(vec2 a_position)"
         "{"
-        "   float s = 1;"
-        "   return sin(a_position[0]*s)*cos(a_position[1]*s)*s;"
+        "   return sin(a_position[0]) * cos(a_position[1]);"
         "}"
         ""
         "void main()"
         "{"
-        "   gl_Position = u_mvp * vec4(a_position[0], f(a_position), a_position[1], 1.0);"
+        "   vec4 pos = vec4(a_position[0], f(a_position), a_position[1], 1.0);"
+        "   v_pos = vec3(u_mv * pos);"
+        "   vec3 n = grad(a_position);"
+        "   v_normal = transpose(inverse(mat3(u_mv))) * normalize(n);"
+        "   gl_Position = u_mvp * pos;"
         "}"
         ;
 
     const GLchar fsh[] =
         "#version 330\n"
         ""
+        "in vec3 v_pos;"
+        "in vec3 v_normal;"
         ""
         "layout(location = 0) out vec4 o_color;"
         ""
         "void main()"
         "{"
-        "   o_color = vec4(0, 255, 0, 1.0);"
+        "   vec3 n = normalize(v_normal);"
+        ""
+        "   vec3 L = vec3(0,15,5);"
+        "   vec3 l = normalize(L - v_pos);"
+        "   vec3 e = normalize(-1 * v_pos);"
+        ""
+        "   float d = dot(l, n);"
+        ""
+        "   vec3 h = normalize(l + e);"
+        "   float s = dot(h, n);"
+        "   s = pow(s, 20);"
+        "   o_color = vec4(vec3(0,1,0) * d + vec3(s), 1);"
+        ""
         "}"
         ;
 
@@ -214,6 +239,8 @@ bool createShaderProgram()
     }
     */
 
+    /*Thin Film Interferecies*/
+
     GLuint vertexShader, fragmentShader;
 
     vertexShader = createShader(vsh, GL_VERTEX_SHADER);
@@ -223,6 +250,7 @@ bool createShaderProgram()
 
     /*запрос матрицы из шейдера*/
     g_uMVP = glGetUniformLocation(g_shaderProgram, "u_mvp");
+    g_uMV = glGetUniformLocation(g_shaderProgram, "u_mv");
 
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
@@ -236,6 +264,9 @@ GLint getNumVertex(int j, int i, int n) {
 
 bool createModel()
 {
+
+    GLint n = 200;
+
     GLint vertex_count = n * n * 2;
 
     GLfloat* vertex_arr = new GLfloat[vertex_count];
@@ -246,22 +277,34 @@ bool createModel()
     {
         for (int j = 0; j < n; j++)
         {
-            vertex_arr[k] = x0 + dx * j;
+            GLfloat x = x0 + dx * j;
+            GLfloat z = z0 + dz * i;
+            vertex_arr[k] = x;
             k++;
 
-            vertex_arr[k] = z0 + dz * i;
+            vertex_arr[k] = z;
             k++;
-
-            //cout << vertex_arr[k-2] << " "<<vertex_arr[k-1] << endl;
+            //cout <<k-2<< " " << vertex_arr[k - 2] << " " << vertex_arr[k - 1] << endl;
+            //cout << vertex_arr[k - 2]<<" ";
         }
+        //cout << endl;
     }
     GLint index_size = (n - 1) * (n - 1) * 6;
 
     GLuint* index_arr = new GLuint[index_size];
 
     int i = 0;
+    int l = 1;
+
     for (int k = 0; k < index_size; k+=6)
     {
+        if (i == (n * l - 1))
+        {
+            l++;
+            i++;
+            continue;
+        }
+
         index_arr[k] = i;
         index_arr[k + 1] = i + 1;
         index_arr[k + 2] = n + i + 1;
@@ -287,10 +330,10 @@ bool createModel()
     g_model.indexCount = index_size;
 
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (const GLvoid*)0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(GLfloat), (const GLvoid*)0);
 
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (const GLvoid*)(2 * sizeof(GLfloat)));
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(GLfloat), (const GLvoid*)(2 * sizeof(GLfloat)));
 
     return g_model.vbo != 0 && g_model.ibo != 0 && g_model.vao != 0;
 }
@@ -328,8 +371,8 @@ void draw()
     mat4 Projection = perspective(
         radians(45.0f), // Угол обзора
         1.0f,   // Соотншение сторон окна
-        x0,             // Ближняя плоскость отсечения
-        abs(x0)         // Дальняя плоскость отсечения
+        z0-2,             // Ближняя плоскость отсечения
+        abs(z0-2)         // Дальняя плоскость отсечения
     );
 
     mat4 View = lookAt(
@@ -351,6 +394,7 @@ void draw()
     mat4 MVP = Projection * MV;
 
     /*отправляем её в шейдер*/
+    glUniformMatrix4fv(g_uMV, 1, GL_FALSE, &MV[0][0]);
     glUniformMatrix4fv(g_uMVP, 1, GL_FALSE, &MVP[0][0]);
 
     /*вызываем перерисовку*/
