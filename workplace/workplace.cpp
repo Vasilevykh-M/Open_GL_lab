@@ -5,6 +5,7 @@
 #include <glm/mat4x4.hpp>
 #include<chrono>
 #include <cmath>
+#include "SOIL.h"
 
 #pragma comment(lib, "glfw3.lib")
 #pragma comment(lib, "glew32.lib")
@@ -19,6 +20,7 @@ GLuint g_shaderProgram;
 GLint g_uMVP;
 GLint g_uMV;
 GLint g_time;
+GLint g_M33;
 float scale_coef = 5.f;
 
 GLfloat x0 = -10.0;
@@ -30,9 +32,14 @@ GLfloat dz = 0.1;
 GLfloat angle = 0.0f;
 mat4 ModelMatrix = mat4(1.0f);
 
+GLuint texID;
+GLint mapLocation;
+
 
 chrono::system_clock::time_point old_time = chrono::system_clock::now();
 chrono::system_clock::time_point cur_time = chrono::system_clock::now();
+
+const char* filename = "C:\\Users\\Михаил\\Desktop\\Графика и вычислительная геометрия\\текстура\\shrek.png";
 
 class Model
 {
@@ -123,17 +130,17 @@ bool createShaderProgram()
         ""
         "uniform mat4 u_mvp;"
         "uniform mat4 u_mv;"
-        "uniform float g_time;"
+        "uniform mat3 u_m33;"
         ""
         "vec3 grad(vec2 pos)"
         "{"
-        "   return vec3(3.14/5 * cos(pos[0]*3.14/5)*cos(pos[1]*3.14/5), 1.0, -1 * 3.14/5 * sin(pos[0]*3.14/5) * sin(pos[1]*3.14/5));"
+        "   return vec3(-3.14/4 * cos(pos[0]*3.14/4)*cos(pos[1]*3.14/4), 1.0, 3.14/4 * sin(pos[0]*3.14/4) * sin(pos[1]*3.14/4));"
         "}"
 
         ""
         "float f(vec2 a_position)"
         "{"
-        "   return sin(a_position[0]*3.14/5) * cos(a_position[1]*3.14/5);"
+        "   return sin(a_position[0]*3.14/4) * cos(a_position[1]*3.14/4);"
         "}"
         ""
         "void main()"
@@ -141,7 +148,7 @@ bool createShaderProgram()
         "   vec4 pos = vec4(a_position[0], f(a_position), a_position[1], 1.0);"
         "   v_pos = vec3(u_mv * pos);"
         "   vec3 n = grad(a_position);"
-        "   v_normal = transpose(inverse(mat3(u_mv))) * normalize(n);"
+        "   v_normal = u_m33 * normalize(n);" // вынес тк по идее эта матричка считается один раз за весь кадр
         "   gl_Position = u_mvp * pos;"
         "}"
         ;
@@ -151,129 +158,30 @@ bool createShaderProgram()
         ""
         "in vec3 v_pos;"
         "in vec3 v_normal;"
-        "uniform float g_time;"//перекачиваю время с основной программы для создания псевдо случайности
-        ""// но по хорошему это работает на случайность кадра а не точки
+        ""// но по хорошему это работает на случайность кадра, а не точки
         "layout(location = 0) out vec4 o_color;"
-        "float rand(vec3 seed)" // функция рандомизации
-        "{"
-        "   return (1,1 -sin(dot(vec2(sin(3.14  *seed[0])*4 + 1, cos(3.14  * seed[0])*4+1), vec2(atan(seed[1]), tan(seed[2]))))) * 300;"
-        "}"
-        ""
         ""
         "void main()"
         "{"
         "   vec3 n = normalize(v_normal);"
         ""
-        "   vec3 L = vec3(0,5,0);" // источник света
+        "   vec3 L = vec3(0, 5, 0);" // источник света
         "   vec3 l = normalize(L - v_pos);" // поток света
         "   vec3 e = normalize(-1 * v_pos);" // вектор в сторону наблюдателя
         ""
-        "   float d = dot(l, n);" // дифузное освещение(так же можно интерпритировать как sin угла падения к нормали)
+        "   float d = dot(l, n);" // дифузное освещение
+        ""
         ""
         "   vec3 h = normalize(l + e);"
         "   float s = dot(h, n);"
         "   s = pow(s, 20);" // блик
         ""
-        "   float d_film = rand(vec3(g_time, s, d));" // толщина пленки
+        "   vec3 _color = vec3(0.5, 0.5, 0);"
         ""
-        "   float lambda1 = 1.33 * d_film * sqrt(1.5 * 1.5- d * d);" // из условий максимума интерференции
-        ""
-        "   vec3 color = vec3(0, 0, 0);"// базовый цвет
-        ""
-        ""
-        "   if(lambda1 >= 380 && lambda1 <= 450)" // фиолетовый
-        "       color = vec3((lambda1 - 380) * 0.014, 0, 0.014 * (lambda1 - 380));"//[0, 0, 0] -> [255, 0, 255]
-        ""
-        "   if(lambda1 > 450 && lambda1 <= 500)" // синий
-        "       color = vec3(1.0 - (lambda1 - 450) * 0.02, 0, 1.0);" // [255, 0, 255] -> [0, 0, 255]
-        ""
-        "   if(lambda1 > 500 && lambda1 <= 520)" // циановый
-        "       color = vec3(0, (lambda1 - 500) * 0.05, 1.0);" // [0, 0, 255] -> [0, 255, 255]
-        ""
-        "   if(lambda1 > 520 && lambda1 <= 565)" // зеленый
-        "       color = vec3(0, 1.0, 1.0 - (lambda1 - 520) * 0.0222);" // [0, 255, 255] -> [0, 255, 0]
-        ""
-        "   if(lambda1 > 565 && lambda1 <= 590)" //желтый
-        "       color = vec3((lambda1 - 565) * 0.04, 1.0, 0);" //[0, 255, 0] -> [255, 255, 0]
-        ""
-        "   if(lambda1 > 590 && lambda1 <= 635)" //оранжевый
-        "       color = vec3(1.0, 1.0 - 0.0111 * (lambda1 - 590), 0);" // [255, 255, 0] -> [255, 125, 0]
-        ""
-        "   if(lambda1 > 635 && lambda1 < 770)" // красный
-        "       color = vec3(1.0, 0.5 - (lambda1 - 635)*0.0037, 0);" // [255, 125, 0] -> [255, 0, 0]
-        ""
-        "   o_color = vec4(color * d + vec3(s), 1);"
+        "   o_color = vec4(_color * d + vec3(s), 1);"
         ""
         "}"
         ;
-
-    /* Шейдер света типо зашит в шейдере цвета*/
-    /* Вектор от точки к источнику света - L, нормаль - N, точка на которую падает свет - P, вектор отраженного света к наблюдателю - E* /
-    /* С = Cd * cos a + Cs * (cos B)^n*/
-    /* P L E N - "дано", но нужно все равно вычислять*/
-    /* В пространсве наблюдателя E = {0,0,0}*/
-
-
-
-    /*
-    in vec2 a_pos;
-
-    out vec3 v_pos; точка
-    out vec3 v_normal; вектор нормаль           нужно знать градиент функции y - sin(X)*cos(z) = 0 или любой другой плоскости которую имеем
-
-    uniform mat4 u_mvp; mvp
-    uniform mat4 u_mv; mv
-
-    vec3 grad(vec pos)
-    {
-        return vec3(-cos(pos[0])*cos(pos[1]), 1.0, sin(pos[0]) * sin(pos[1])); 
-    }
-
-    void main()
-    {
-        vec4 pos = vec4(a_pos[0], f(a_pos), a_pos[1], 1);
-        v_pos = u_mv * pos;
-        vec3 n = grad(a_pos);
-        v_normal = transpos(inverse(mat3(u_mv))) * normalaze(n);
-        gl_Position = u_mvp * pos;
-    }
-    */
-    // / \
-    //  |
-    //
-    /*N = ((MV[3*3])^-1)^T*/
-
-    /*L = {5, 5, -2};       в пространстве наблюдателя*/
-
-
-
-    /*фрагментный шейдер*/
-    /*
-    in vec3 v_pos;
-    in vec3 v_normal;
-    
-    void main()
-    {
-        vec3 n = normalize(v_normal);
-
-        vec3 l = normalize(L - v_pos);
-        vec3 e = normalize(-1 * v_pos);
-
-        float d = dot(l, n); // диф освещение
-
-        vec3 h = normalize(l + e);
-        float s = dot(h, n); // блик
-        s = pow(s, 20);
-
-        o_color = vec4(vec3(0,1,0) * d + vec3(s), 1);
-
-
-        o_color = vec4(vec3(1, 0, 0) * d, 1);
-
-        o_color = vec4(abs(n), 1); дебажим нормали 
-    }
-    */
-
     /*Thin Film Interferecies*/
 
     GLuint vertexShader, fragmentShader;
@@ -286,16 +194,13 @@ bool createShaderProgram()
     /*запрос матрицы из шейдера*/
     g_uMVP = glGetUniformLocation(g_shaderProgram, "u_mvp");
     g_uMV = glGetUniformLocation(g_shaderProgram, "u_mv");
-    g_time = glGetUniformLocation(g_shaderProgram, "g_time");
+    /*время*/
+    g_M33 = glGetUniformLocation(g_shaderProgram, "u_m33");
 
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
     return g_shaderProgram != 0;
-}
-
-GLint getNumVertex(int j, int i, int n) {
-    return (GLint)(i + j * (n + 1));
 }
 
 bool createModel()
@@ -332,9 +237,9 @@ bool createModel()
     int i = 0;
     int l = 1;
 
-    for (int k = 0; k < index_size; k+=6)
+    for (int k = 0; k < index_size; k += 6)
     {
-        if (i == (n * l - 1))
+        if (i == (n * l - 1)) // были баги с треугольниками, что он протягивал плоскость снизу из за этого рисовались всякие плохие штуки
         {
             l++;
             i++;
@@ -348,7 +253,7 @@ bool createModel()
         index_arr[k + 4] = n + i;
         index_arr[k + 5] = i;
         i++;
-            
+
         //cout << index_arr[k] << " " << index_arr[k + 1] << " " << index_arr[k + 2] << " " << index_arr[k + 3] << " " << index_arr[k + 4] << " " << index_arr[k + 5] << endl;
     }
 
@@ -371,6 +276,9 @@ bool createModel()
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(GLfloat), (const GLvoid*)(2 * sizeof(GLfloat)));
 
+    delete[] vertex_arr;
+    delete[] index_arr;
+
     return g_model.vbo != 0 && g_model.ibo != 0 && g_model.vao != 0;
 }
 
@@ -378,6 +286,21 @@ bool init()
 {
     // Set initial color of color buffer to white.
     glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+
+
+    /*SOIL documental*/
+    GLsizei texW, texH;
+    GLvoid* image = SOIL_load_image(filename, &texW, &texH, 0, SOIL_LOAD_RGB);
+    glGenTextures(1, &texID);
+    glBindTexture(GL_TEXTURE_2D, texID);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, texW, texH, 0, GL_RGBA, GL_UNSIGNED_BYTE, image);
+    delete[] image;
+    /*я думаю тут можно будет обрезать приколы с пирамидой*/
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    mapLocation = glGetUniformLocation(g_shaderProgram, "u_map");
 
     glEnable(GL_DEPTH_TEST); // изменение состояний в машине состояний 
     // подключает тест глубины
@@ -399,16 +322,16 @@ void draw()
     glUseProgram(g_shaderProgram);
     glBindVertexArray(g_model.vao);
 
-
-    /*обьявляем матрицу преобразования*/
-    /*для примера надо будет автоматом получать*/
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, texID);
+    glUniform1i(mapLocation, 0);
 
 
     mat4 Projection = perspective(
         radians(45.0f), // Угол обзора
         1.0f,   // Соотншение сторон окна
-        z0-2,             // Ближняя плоскость отсечения
-        abs(z0-2)         // Дальняя плоскость отсечения
+        z0 - 2,             // Ближняя плоскость отсечения
+        abs(z0 - 2)         // Дальняя плоскость отсечения
     );
 
     mat4 View = lookAt(
@@ -418,9 +341,11 @@ void draw()
     );
 
 
-    // Матрица MVP
+    // Матрица MV
     cur_time = chrono::system_clock::now();
-    angle = fmod(3.14, pow(1 + chrono::duration_cast<chrono::microseconds>(cur_time - old_time).count(), 3.0))/300;
+    angle = fmod(3.14, pow(1 + chrono::duration_cast<chrono::microseconds>(cur_time - old_time).count(), 3.0)) / 300;
+    // тут заложена функция расчета поворота
+    //суть в том чем дольше рабтал предыуший шейдер тем меньше будет угол поворота во избежания рывков при анимации
     old_time = cur_time;
 
     ModelMatrix = rotate(ModelMatrix, radians(angle), vec3(0, 1, 0));
@@ -430,13 +355,16 @@ void draw()
     mat4 MVP = Projection * MV;
     float time = chrono::duration_cast<chrono::microseconds>(cur_time - old_time).count();
 
+    mat3 M3_3 = transpose(inverse(mat3(MV)));
+
     /*отправляем её в шейдер*/
     glUniformMatrix4fv(g_uMV, 1, GL_FALSE, &MV[0][0]);
     glUniformMatrix4fv(g_uMVP, 1, GL_FALSE, &MVP[0][0]);
-    glUniform1f(g_time, time);
+    glUniformMatrix3fv(g_M33, 1, GL_FALSE, &M3_3[0][0]);
 
     /*вызываем перерисовку*/
     glDrawElements(GL_TRIANGLES, g_model.indexCount, GL_UNSIGNED_INT, NULL);
+
 }
 
 void cleanup()
