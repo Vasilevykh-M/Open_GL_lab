@@ -32,14 +32,17 @@ GLfloat dz = 0.1;
 GLfloat angle = 0.0f;
 mat4 ModelMatrix = mat4(1.0f);
 
-GLuint texID;
-GLint mapLocation;
+GLuint texIDs[2];
+
+GLint mapLocation1;
+GLint mapLocation2;
 
 
 chrono::system_clock::time_point old_time = chrono::system_clock::now();
 chrono::system_clock::time_point cur_time = chrono::system_clock::now();
 
-const char* filename = "C:\\Users\\Михаил\\Desktop\\Графика и вычислительная геометрия\\текстура\\shrek.png";
+const char* filename1 = "C:\\Users\\Михаил\\Desktop\\Графика и вычислительная геометрия\\текстура\\sea.png";
+const char* filename2 = "C:\\Users\\Михаил\\Desktop\\Графика и вычислительная геометрия\\текстура\\wolf.png";
 
 class Model
 {
@@ -127,6 +130,8 @@ bool createShaderProgram()
         ""
         "out vec3 v_pos;"
         "out vec3 v_normal;"
+        "out vec2 v_p;"
+        "out vec2 text_coord;"
         ""
         "uniform mat4 u_mvp;"
         "uniform mat4 u_mv;"
@@ -150,6 +155,8 @@ bool createShaderProgram()
         "   vec3 n = grad(a_position);"
         "   v_normal = u_m33 * normalize(n);" // вынес тк по идее эта матричка считается один раз за весь кадр
         "   gl_Position = u_mvp * pos;"
+        "   v_p = vec2(pos[0], pos[2]);"
+        "   text_coord = vec2((v_p[0]+10)/20, (v_p[1]+10)/20);"
         "}"
         ;
 
@@ -157,9 +164,17 @@ bool createShaderProgram()
         "#version 330\n"
         ""
         "in vec3 v_pos;"
+        "uniform sampler2D u_map1;"
+        "uniform sampler2D u_map2;"
         "in vec3 v_normal;"
-        ""// но по хорошему это работает на случайность кадра, а не точки
+        "in vec2 v_p;"   
+        "in vec2 text_coord;"
         "layout(location = 0) out vec4 o_color;"
+        ""
+        "vec4 blend(vec4 c1, vec4 c2)"
+        "{"
+        "   return vec4((c1.r*c1.a + c2.r*c2.a)/(c1.a+c2.a), (c1.g*c1.a + c2.g*c2.a)/(c1.a+c2.a), (c1.b*c1.a + c2.b*c2.a)/(c1.a+c2.a), (c1.a+c2.a) /2.0);"
+        "}"
         ""
         "void main()"
         "{"
@@ -169,20 +184,26 @@ bool createShaderProgram()
         "   vec3 l = normalize(L - v_pos);" // поток света
         "   vec3 e = normalize(-1 * v_pos);" // вектор в сторону наблюдателя
         ""
-        "   float d = dot(l, n);" // дифузное освещение
+        "   float d = max(dot(l, n), 0.5);" // дифузное освещение
         ""
         ""
         "   vec3 h = normalize(l + e);"
         "   float s = dot(h, n);"
-        "   s = pow(s, 20);" // блик
+        "   s = pow(max(s, 0), 20) * int(dot(l, n)>=0);" // блик
         ""
-        "   vec3 _color = vec3(0.5, 0.5, 0);"
+        "   float gamma=2.2;"
         ""
-        "   o_color = vec4(_color * d + vec3(s), 1);"
+        "   vec4 c1 = texture(u_map1, text_coord);"
+        "   vec4 c2 = texture(u_map2, text_coord);"
+        "   vec4 dc = mix(c1, c2, 0.7);"
+        "   dc.rgb = pow(dc.rgb, vec3(2.2));"
+        ""
+        "   o_color = vec4(vec3(dc) * d + vec3(s), 1);"
+        "   o_color.rgb = pow(o_color.rgb, vec3(1/2.2));"
+        "   o_color.a = 1.f; "
         ""
         "}"
         ;
-    /*Thin Film Interferecies*/
 
     GLuint vertexShader, fragmentShader;
 
@@ -194,8 +215,9 @@ bool createShaderProgram()
     /*запрос матрицы из шейдера*/
     g_uMVP = glGetUniformLocation(g_shaderProgram, "u_mvp");
     g_uMV = glGetUniformLocation(g_shaderProgram, "u_mv");
-    /*время*/
     g_M33 = glGetUniformLocation(g_shaderProgram, "u_m33");
+    mapLocation1 = glGetUniformLocation(g_shaderProgram, "u_map1");
+    mapLocation2 = glGetUniformLocation(g_shaderProgram, "u_map2");
 
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
@@ -273,13 +295,26 @@ bool createModel()
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(GLfloat), (const GLvoid*)0);
 
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(GLfloat), (const GLvoid*)(2 * sizeof(GLfloat)));
+    /*glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(GLfloat), (const GLvoid*)(2 * sizeof(GLfloat)));*/
 
     delete[] vertex_arr;
     delete[] index_arr;
 
     return g_model.vbo != 0 && g_model.ibo != 0 && g_model.vao != 0;
+}
+
+void init_tex(GLuint tex, const char* filename)
+{
+    GLsizei texW, texH;
+    unsigned char* image = SOIL_load_image(filename, &texW, &texH, 0, SOIL_LOAD_RGBA);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, texW, texH, 0, GL_RGBA, GL_UNSIGNED_BYTE, image);
+    SOIL_free_image_data(image);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 }
 
 bool init()
@@ -288,22 +323,12 @@ bool init()
     glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 
 
-    /*SOIL documental*/
-    GLsizei texW, texH;
-    GLvoid* image = SOIL_load_image(filename, &texW, &texH, 0, SOIL_LOAD_RGB);
-    glGenTextures(1, &texID);
-    glBindTexture(GL_TEXTURE_2D, texID);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, texW, texH, 0, GL_RGBA, GL_UNSIGNED_BYTE, image);
-    delete[] image;
-    /*я думаю тут можно будет обрезать приколы с пирамидой*/
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    mapLocation = glGetUniformLocation(g_shaderProgram, "u_map");
+    glGenTextures(2, texIDs);
+
+    init_tex(texIDs[0], filename1);
+    init_tex(texIDs[1], filename2);
 
     glEnable(GL_DEPTH_TEST); // изменение состояний в машине состояний 
-    // подключает тест глубины
 
     return createShaderProgram() && createModel();
 }
@@ -321,10 +346,6 @@ void draw()
 
     glUseProgram(g_shaderProgram);
     glBindVertexArray(g_model.vao);
-
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, texID);
-    glUniform1i(mapLocation, 0);
 
 
     mat4 Projection = perspective(
@@ -362,6 +383,15 @@ void draw()
     glUniformMatrix4fv(g_uMVP, 1, GL_FALSE, &MVP[0][0]);
     glUniformMatrix3fv(g_M33, 1, GL_FALSE, &M3_3[0][0]);
 
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, texIDs[0]);
+    glUniform1i(mapLocation1, 0);
+
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, texIDs[1]);
+    glUniform1i(mapLocation2, 1);
+
     /*вызываем перерисовку*/
     glDrawElements(GL_TRIANGLES, g_model.indexCount, GL_UNSIGNED_INT, NULL);
 
@@ -377,6 +407,7 @@ void cleanup()
         glDeleteBuffers(1, &g_model.ibo);
     if (g_model.vao != 0)
         glDeleteVertexArrays(1, &g_model.vao);
+    glDeleteTextures(2, texIDs);
 }
 
 bool initOpenGL()
